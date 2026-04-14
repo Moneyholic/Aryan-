@@ -292,6 +292,7 @@ if (!window.karenBotInjected) {
         stochHistory: [],
         stochParams: { k: 14, sk: 3, d: 3 },
         lastCalcTime: 0,
+        lastIndicatorCalcTime: 0,
         sessionSeconds: 0,
         isRunning: false,
         activeBot: 'KAREN',
@@ -746,74 +747,102 @@ if (!window.karenBotInjected) {
         if (allCandles.length > 0) {
             const now = Date.now();
             
-            const closes = allCandles.map(c => c.close);
-            
-            const { lines, signals, hists } = calculateMACDFull(closes, state.macdParams.fast, state.macdParams.slow, state.macdParams.sig);
-            const stochData = calculateStochasticFull(allCandles, state.stochParams.k, state.stochParams.sk, state.stochParams.d);
-            
-            const curMacd = { line: lines[lines.length-1], signal: signals[signals.length-1], hist: hists[hists.length-1] };
-            const curStoch = { k: stochData.k[stochData.k.length-1], d: stochData.d[stochData.d.length-1] };
-            
-            state.macd = curMacd;
-            state.stoch = curStoch;
-            
-            if (isIframe && state.fullRecalc) {
-                window.parent.postMessage({
-                    type: 'KAREN_BATCH_HISTORICAL',
-                    asset: state.activeAsset,
-                    candles: allCandles,
-                    macdLines: lines.map((v, i) => ({ time: allCandles[i].time, value: v })),
-                    macdSignals: signals.map((v, i) => ({ time: allCandles[i].time, value: v })),
-                    macdHists: hists.map((v, i) => ({ time: allCandles[i].time, value: v, color: v >= 0 ? '#111827' : '#9CA3AF' })),
-                    stochKs: stochData.k.map((v, i) => ({ time: allCandles[i].time, value: v })),
-                    stochDs: stochData.d.map((v, i) => ({ time: allCandles[i].time, value: v }))
-                }, '*');
-            }
-
-            // 30 SECOND THROTTLE FOR BOT LOGIC HISTORY
-            if (now - state.lastCalcTime >= 30000) {
-                state.lastCalcTime = now;
+            if (now - state.lastIndicatorCalcTime >= 10000 || state.fullRecalc) {
+                state.lastIndicatorCalcTime = now;
                 
-                // Keep last 10 values
-                state.macdHistory.unshift(curMacd);
-                if (state.macdHistory.length > 400) state.macdHistory.pop();
+                const closes = allCandles.map(c => c.close);
                 
-                state.stochHistory.unshift(curStoch);
-                if (state.stochHistory.length > 400) state.stochHistory.pop();
-            }
-            
-            const macdEl = el('ui-macd-val');
-            if (macdEl) {
-                macdEl.innerText = \`\${state.macd.line.toFixed(2)} / \${state.macd.signal.toFixed(2)}\`;
-                macdEl.style.color = state.macd.line > state.macd.signal ? '#000000' : '#000000';
-            }
-            
-            if (tvMacdLine) {
-                if (state.fullRecalc) {
-                    tvMacdLine.setData(lines.map((v, i) => ({ time: allCandles[i].time, value: v })));
-                    tvMacdSignal.setData(signals.map((v, i) => ({ time: allCandles[i].time, value: v })));
-                    tvMacdHist.setData(hists.map((v, i) => ({ time: allCandles[i].time, value: v, color: v >= 0 ? '#111827' : '#9CA3AF' })));
+                const { lines, signals, hists } = calculateMACDFull(closes, state.macdParams.fast, state.macdParams.slow, state.macdParams.sig);
+                const stochData = calculateStochasticFull(allCandles, state.stochParams.k, state.stochParams.sk, state.stochParams.d);
+                
+                const curMacd = { line: lines[lines.length-1], signal: signals[signals.length-1], hist: hists[hists.length-1] };
+                const curStoch = { k: stochData.k[stochData.k.length-1], d: stochData.d[stochData.d.length-1] };
+                
+                state.macd = curMacd;
+                state.stoch = curStoch;
+                
+                // Swing High/Low Detection for MACD Memory
+                if (lines.length >= 3) {
+                    const prev2 = lines[lines.length - 3];
+                    const prev1 = lines[lines.length - 2];
+                    const curr = lines[lines.length - 1];
                     
-                    if (tvStochK) {
-                        tvStochK.setData(stochData.k.map((v, i) => ({ time: allCandles[i].time, value: v })));
-                        tvStochD.setData(stochData.d.map((v, i) => ({ time: allCandles[i].time, value: v })));
+                    if (prev1 > prev2 && prev1 > curr && prev1 > 0) {
+                        // Swing High
+                        if (!state.historicalHighs) state.historicalHighs = [];
+                        if (!state.historicalHighs.includes(prev1)) {
+                            state.historicalHighs.push(prev1);
+                            if (state.historicalHighs.length > 500) state.historicalHighs.shift();
+                        }
                     }
+                    if (prev1 < prev2 && prev1 < curr && prev1 < 0) {
+                        // Swing Low
+                        if (!state.historicalLows) state.historicalLows = [];
+                        if (!state.historicalLows.includes(prev1)) {
+                            state.historicalLows.push(prev1);
+                            if (state.historicalLows.length > 500) state.historicalLows.shift();
+                        }
+                    }
+                }
+                
+                if (isIframe && state.fullRecalc) {
+                    window.parent.postMessage({
+                        type: 'KAREN_BATCH_HISTORICAL',
+                        asset: state.activeAsset,
+                        candles: allCandles,
+                        macdLines: lines.map((v, i) => ({ time: allCandles[i].time, value: v })),
+                        macdSignals: signals.map((v, i) => ({ time: allCandles[i].time, value: v })),
+                        macdHists: hists.map((v, i) => ({ time: allCandles[i].time, value: v, color: v >= 0 ? '#111827' : '#9CA3AF' })),
+                        stochKs: stochData.k.map((v, i) => ({ time: allCandles[i].time, value: v })),
+                        stochDs: stochData.d.map((v, i) => ({ time: allCandles[i].time, value: v }))
+                    }, '*');
+                }
+
+                // 30 SECOND THROTTLE FOR BOT LOGIC HISTORY
+                if (now - state.lastCalcTime >= 30000) {
+                    state.lastCalcTime = now;
                     
-                    state.fullRecalc = false;
-                } else {
-                    const lastTime = allCandles[allCandles.length - 1].time;
-                    try {
-                        tvMacdLine.update({ time: lastTime, value: curMacd.line });
-                        tvMacdSignal.update({ time: lastTime, value: curMacd.signal });
-                        tvMacdHist.update({ time: lastTime, value: curMacd.hist, color: curMacd.hist >= 0 ? '#111827' : '#9CA3AF' });
+                    // Keep last 10 values
+                    state.macdHistory.unshift(curMacd);
+                    if (state.macdHistory.length > 400) state.macdHistory.pop();
+                    
+                    state.stochHistory.unshift(curStoch);
+                    if (state.stochHistory.length > 400) state.stochHistory.pop();
+                }
+                
+                const macdEl = el('ui-macd-val');
+                if (macdEl) {
+                    macdEl.innerText = \`\${state.macd.line.toFixed(2)} / \${state.macd.signal.toFixed(2)}\`;
+                    macdEl.style.color = state.macd.line > state.macd.signal ? '#000000' : '#000000';
+                }
+                
+                if (tvMacdLine) {
+                    if (state.fullRecalc) {
+                        tvMacdLine.setData(lines.map((v, i) => ({ time: allCandles[i].time, value: v })));
+                        tvMacdSignal.setData(signals.map((v, i) => ({ time: allCandles[i].time, value: v })));
+                        tvMacdHist.setData(hists.map((v, i) => ({ time: allCandles[i].time, value: v, color: v >= 0 ? '#111827' : '#9CA3AF' })));
                         
                         if (tvStochK) {
-                            tvStochK.update({ time: lastTime, value: curStoch.k });
-                            tvStochD.update({ time: lastTime, value: curStoch.d });
+                            tvStochK.setData(stochData.k.map((v, i) => ({ time: allCandles[i].time, value: v })));
+                            tvStochD.setData(stochData.d.map((v, i) => ({ time: allCandles[i].time, value: v })));
                         }
-                    } catch(e) {
-                        console.error('MACD update error', e);
-                        state.fullRecalc = true; // Force recalc next time
+                        
+                        state.fullRecalc = false;
+                    } else {
+                        const lastTime = allCandles[allCandles.length - 1].time;
+                        try {
+                            tvMacdLine.update({ time: lastTime, value: curMacd.line });
+                            tvMacdSignal.update({ time: lastTime, value: curMacd.signal });
+                            tvMacdHist.update({ time: lastTime, value: curMacd.hist, color: curMacd.hist >= 0 ? '#111827' : '#9CA3AF' });
+                            
+                            if (tvStochK) {
+                                tvStochK.update({ time: lastTime, value: curStoch.k });
+                                tvStochD.update({ time: lastTime, value: curStoch.d });
+                            }
+                        } catch(e) {
+                            console.error('MACD update error', e);
+                            state.fullRecalc = true; // Force recalc next time
+                        }
                     }
                 }
             }
@@ -833,6 +862,8 @@ if (!window.karenBotInjected) {
             stochHistory: state.stochHistory,
             candles: state.candles,
             histState: state.histState,
+            historicalHighs: state.historicalHighs || [],
+            historicalLows: state.historicalLows || [],
             signal: (sig) => setSignal(sig),
             log: (msg, type) => addLog(msg, type),
             ring: (msg) => window.ring(msg),
@@ -1259,12 +1290,12 @@ if (!window.karenState || !window.karenState.memoryLoaded) {
     const saved = localStorage.getItem(memKey);
     if (saved) {
         const parsed = JSON.parse(saved);
-        window.karenState.savedMax = parsed.max || 10;
-        window.karenState.savedMin = parsed.min || -10;
+        window.karenState.savedHighs = parsed.highs || [];
+        window.karenState.savedLows = parsed.lows || [];
         window.karenState.importTime = Date.now();
     } else {
-        window.karenState.savedMax = 10;
-        window.karenState.savedMin = -10;
+        window.karenState.savedHighs = [];
+        window.karenState.savedLows = [];
     }
     window.karenState.memoryLoaded = true;
 }
@@ -1274,19 +1305,20 @@ if (window.karenState.importTime && Date.now() - window.karenState.importTime < 
     return; // Hold the IMPORTING signal for 2 seconds
 }
 
-const macdLineHistory = ctx.macdHistory.slice(0, historyLength).map(m => m.line);
-let currentMax = Math.max(...macdLineHistory);
-let currentMin = Math.min(...macdLineHistory);
+// Mix current session highs/lows with saved highs/lows
+const allHighs = [...new Set([...window.karenState.savedHighs, ...ctx.historicalHighs])];
+const allLows = [...new Set([...window.karenState.savedLows, ...ctx.historicalLows])];
 
-let maxMacd = Math.max(currentMax, window.karenState.savedMax || 10);
-let minMacd = Math.min(currentMin, window.karenState.savedMin || -10);
-
-// Save back to memory
-if (maxMacd > (window.karenState.savedMax || 10) || minMacd < (window.karenState.savedMin || -10)) {
-    window.karenState.savedMax = maxMacd;
-    window.karenState.savedMin = minMacd;
-    localStorage.setItem(memKey, JSON.stringify({ max: maxMacd, min: minMacd }));
+// Save back to memory if there are new ones
+if (allHighs.length > window.karenState.savedHighs.length || allLows.length > window.karenState.savedLows.length) {
+    window.karenState.savedHighs = allHighs;
+    window.karenState.savedLows = allLows;
+    localStorage.setItem(memKey, JSON.stringify({ highs: allHighs, lows: allLows }));
 }
+
+// Calculate max and min from all mixed highs and lows
+let maxMacd = allHighs.length > 0 ? Math.max(...allHighs) : 10;
+let minMacd = allLows.length > 0 ? Math.min(...allLows) : -10;
 
 if (maxMacd < 10) maxMacd = 10;
 if (minMacd > -10) minMacd = -10;
@@ -1298,31 +1330,16 @@ const lowerRecovery = minMacd * RECOVERY_PERCENT;
 
 // === KAREN'S STATE ===
 window.karenState.mode = window.karenState.mode || 'NORMAL';
-window.karenState.hauntingTriggered = window.karenState.hauntingTriggered || false;
-window.karenState.prevStochK = window.karenState.prevStochK !== undefined ? window.karenState.prevStochK : null;
-window.karenState.prevStochD = window.karenState.prevStochD !== undefined ? window.karenState.prevStochD : null;
 
 const macdLine = ctx.macd.line;
-const macdHist = ctx.macd.hist;
-const stochK = ctx.stoch.k;
-const stochD = ctx.stoch.d;
 
-// Get previous values for momentum and crossing checks
-const prevStochK = window.karenState.prevStochK !== null ? window.karenState.prevStochK : stochK;
-const prevStochD = window.karenState.prevStochD !== null ? window.karenState.prevStochD : stochD;
-
-// Get previous candle's histogram
-const prevMacdHist = ctx.macdHistory.length > 1 ? ctx.macdHistory[ctx.macdHistory.length - 2].hist : macdHist;
-
-// === 1. MODE TRANSITIONS ===
+// === 1. MODE TRANSITIONS & ALERTS ===
 if (window.karenState.mode === 'NORMAL') {
     if (macdLine <= lowerExtreme) {
         window.karenState.mode = 'DEFENCE_DOWN';
-        window.karenState.hauntingTriggered = false;
         ctx.ring("🚨 „„" + ctx.asset + "„„... MACD went under " + lowerExtreme.toFixed(2) + ". Entering DEFENCE DOWN.");
     } else if (macdLine >= upperExtreme) {
         window.karenState.mode = 'DEFENCE_UP';
-        window.karenState.hauntingTriggered = false;
         ctx.ring("🚨 „„" + ctx.asset + "„„... MACD went over " + upperExtreme.toFixed(2) + ". Entering DEFENCE UP.");
     }
 } else if (window.karenState.mode === 'DEFENCE_DOWN') {
@@ -1337,39 +1354,13 @@ if (window.karenState.mode === 'NORMAL') {
     }
 }
 
-// === 2. HAUNTING MODE ===
-if (window.karenState.mode === 'DEFENCE_DOWN' && !window.karenState.hauntingTriggered) {
-    // SO crosses over 20 (was <= 20, now > 20)
-    const soCrossedOver20 = (prevStochK <= 20 && stochK > 20) || (prevStochD <= 20 && stochD > 20);
-    // MACD Histogram is increasing compared to previous candle's histogram
-    const macdHistIncreasing = macdHist > prevMacdHist;
-    
-    if (soCrossedOver20 && macdHistIncreasing) {
-        ctx.ring("🚨 „„" + ctx.asset + "„„... HAUNTING MODE: SO crossed 20 UPWARD and MACD momentum is positive!!");
-        window.karenState.hauntingTriggered = true;
-    }
-} else if (window.karenState.mode === 'DEFENCE_UP' && !window.karenState.hauntingTriggered) {
-    // SO crosses under 80 (was >= 80, now < 80)
-    const soCrossedUnder80 = (prevStochK >= 80 && stochK < 80) || (prevStochD >= 80 && stochD < 80);
-    // MACD Histogram is decreasing compared to previous candle's histogram
-    const macdHistDecreasing = macdHist < prevMacdHist;
-    
-    if (soCrossedUnder80 && macdHistDecreasing) {
-        ctx.ring("🚨 „„" + ctx.asset + "„„... HAUNTING MODE: SO crossed 80 DOWNWARD and MACD momentum is negative!!");
-        window.karenState.hauntingTriggered = true;
-    }
-}
-
-// === 3. UPDATE STATE & UI ===
-window.karenState.prevStochK = stochK;
-window.karenState.prevStochD = stochD;
-
+// === 2. UPDATE STATE & UI ===
 if (window.karenState.mode === 'NORMAL') {
     ctx.signal("NORMAL");
 } else if (window.karenState.mode === 'DEFENCE_DOWN') {
-    ctx.signal(window.karenState.hauntingTriggered ? "DEFENCE DOWN (HAUNTED)" : "DEFENCE DOWN");
+    ctx.signal("DEFENCE DOWN");
 } else {
-    ctx.signal(window.karenState.hauntingTriggered ? "DEFENCE UP (HAUNTED)" : "DEFENCE UP");
+    ctx.signal("DEFENCE UP");
 }
                   </textarea>
                 </div>
