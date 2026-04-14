@@ -1,5 +1,5 @@
 {
-  "name": "",
-  "description": "",
+  "name": "KAREN & ARYAN Trading Bot Generator",
+  "description": "A generator for a Chrome extension trading bot with AI-powered signals, backtesting, and real-time WebSocket communication.",
   "requestFramePermissions": []
 }
