@@ -1,52 +1,4 @@
-import React, { useState } from 'react';
-import { Download, LayoutTemplate, Sparkles, Film } from 'lucide-react';
-import JSZip from 'jszip';
-import { saveAs } from 'file-saver';
 
-const EXTENSION_MANIFEST = JSON.stringify({
-  "manifest_version": 3,
-  "name": "KAREN & ARYAN Alarm v17.0",
-  "version": "8.0",
-  "description": "Trading Alarm with Hidden Charts (Iframe Jailbreak)",
-  "permissions": ["storage", "declarativeNetRequest"],
-  "host_permissions": ["*://*.olymptrade.com/*", "*://olymptrade.com/*"],
-  "declarative_net_request": {
-    "rule_resources": [{
-      "id": "ruleset_1",
-      "enabled": true,
-      "path": "rules.json"
-    }]
-  },
-  "content_scripts": [{
-    "matches": ["*://*.olymptrade.com/*", "*://olymptrade.com/*"],
-    "js": ["loader.js"],
-    "run_at": "document_start",
-    "all_frames": true
-  }],
-  "web_accessible_resources": [{
-    "resources": ["bot.js", "tv.js", "video.mp4"],
-    "matches": ["<all_urls>"]
-  }]
-}, null, 2);
-
-const EXTENSION_LOADER_JS = "const s = document.createElement('script');\n" +
-"s.src = chrome.runtime.getURL('bot.js');\n" +
-"s.onload = function() { this.remove(); };\n" +
-"(document.head || document.documentElement).appendChild(s);\n" +
-"\n" +
-"// Inject TV\n" +
-"const tv = document.createElement('script');\n" +
-"tv.src = chrome.runtime.getURL('tv.js');\n" +
-"tv.onload = function() { this.remove(); };\n" +
-"(document.head || document.documentElement).appendChild(tv);\n" +
-"\n" +
-"// Pass extension URL to page\n" +
-"const meta = document.createElement('meta');\n" +
-"meta.name = 'karen-ext-url';\n" +
-"meta.content = chrome.runtime.getURL('');\n" +
-"(document.head || document.documentElement).appendChild(meta);\n";
-
-const EXTENSION_BOT_JS = `
 
 // KAREN & ARYAN Floating App - bot.js
 (function() {
@@ -477,7 +429,7 @@ if (!window.karenBotInjected) {
                                     if (isBatch && state.activeAsset && hasOurAsset) {
                                         state.candles.sort((a, b) => a.time - b.time);
                                         state.candles = state.candles.filter((c, i, arr) => i === 0 || c.time > arr[i - 1].time);
-                                        if (state.candles.length > 2000) state.candles = state.candles.slice(-2000);
+                                        if (state.candles.length > 400) state.candles = state.candles.slice(-400);
                                         
                                         if (tvSeries) {
                                             try { tvSeries.setData(state.candles); } catch(e) {}
@@ -703,7 +655,7 @@ if (!window.karenBotInjected) {
                 } else {
                     state.candles.push(state.currentCandle);
                 }
-                if (state.candles.length > 2000) state.candles.shift();
+                if (state.candles.length > 400) state.candles.shift();
             }
             state.currentCandle = { time: currentMinute, open: state.livePrice, high: state.livePrice, low: state.livePrice, close: state.livePrice };
         } else {
@@ -746,7 +698,7 @@ if (!window.karenBotInjected) {
             state.candles.push(c);
             if (!isBatch) {
                 state.candles.sort((a, b) => a.time - b.time);
-                if (state.candles.length > 2000) state.candles = state.candles.slice(-2000);
+                if (state.candles.length > 400) state.candles = state.candles.slice(-400);
                 if (tvSeries) { try { tvSeries.setData(state.candles); } catch(e){} }
             }
         }
@@ -770,11 +722,10 @@ if (!window.karenBotInjected) {
         allCandles = allCandles.filter((c, i, arr) => i === 0 || c.time > arr[i - 1].time);
         
         if (allCandles.length > 0) {
-            const indicatorCandles = allCandles.slice(-400);
-            const closes = indicatorCandles.map(c => c.close);
+            const closes = allCandles.map(c => c.close);
             
             const { lines, signals, hists } = calculateMACDFull(closes, state.macdParams.fast, state.macdParams.slow, state.macdParams.sig);
-            const stochData = calculateStochasticFull(indicatorCandles, state.stochParams.k, state.stochParams.sk, state.stochParams.d);
+            const stochData = calculateStochasticFull(allCandles, state.stochParams.k, state.stochParams.sk, state.stochParams.d);
             
             const curMacd = { line: lines[lines.length-1], signal: signals[signals.length-1], hist: hists[hists.length-1] };
             const curStoch = { k: stochData.k[stochData.k.length-1], d: stochData.d[stochData.d.length-1] };
@@ -811,11 +762,11 @@ if (!window.karenBotInjected) {
                         type: 'KAREN_BATCH_HISTORICAL',
                         asset: state.activeAsset,
                         candles: allCandles,
-                        macdLines: lines.map((v, i) => ({ time: indicatorCandles[i].time, value: v })),
-                        macdSignals: signals.map((v, i) => ({ time: indicatorCandles[i].time, value: v })),
-                        macdHists: hists.map((v, i) => ({ time: indicatorCandles[i].time, value: v, color: v >= 0 ? '#111827' : '#9CA3AF' })),
-                        stochKs: stochData.k.map((v, i) => ({ time: indicatorCandles[i].time, value: v })),
-                        stochDs: stochData.d.map((v, i) => ({ time: indicatorCandles[i].time, value: v }))
+                        macdLines: lines.map((v, i) => ({ time: allCandles[i].time, value: v })),
+                        macdSignals: signals.map((v, i) => ({ time: allCandles[i].time, value: v })),
+                        macdHists: hists.map((v, i) => ({ time: allCandles[i].time, value: v, color: v >= 0 ? '#111827' : '#9CA3AF' })),
+                        stochKs: stochData.k.map((v, i) => ({ time: allCandles[i].time, value: v })),
+                        stochDs: stochData.d.map((v, i) => ({ time: allCandles[i].time, value: v }))
                     }, '*');
                     state.fullRecalc = false;
                 }
@@ -835,13 +786,13 @@ if (!window.karenBotInjected) {
                 
                 if (tvMacdLine) {
                     if (state.fullRecalc) {
-                        tvMacdLine.setData(lines.map((v, i) => ({ time: indicatorCandles[i].time, value: v })));
-                        tvMacdSignal.setData(signals.map((v, i) => ({ time: indicatorCandles[i].time, value: v })));
-                        tvMacdHist.setData(hists.map((v, i) => ({ time: indicatorCandles[i].time, value: v, color: v >= 0 ? '#111827' : '#9CA3AF' })));
+                        tvMacdLine.setData(lines.map((v, i) => ({ time: allCandles[i].time, value: v })));
+                        tvMacdSignal.setData(signals.map((v, i) => ({ time: allCandles[i].time, value: v })));
+                        tvMacdHist.setData(hists.map((v, i) => ({ time: allCandles[i].time, value: v, color: v >= 0 ? '#111827' : '#9CA3AF' })));
                         
                         if (tvStochK) {
-                            tvStochK.setData(stochData.k.map((v, i) => ({ time: indicatorCandles[i].time, value: v })));
-                            tvStochD.setData(stochData.d.map((v, i) => ({ time: indicatorCandles[i].time, value: v })));
+                            tvStochK.setData(stochData.k.map((v, i) => ({ time: allCandles[i].time, value: v })));
+                            tvStochD.setData(stochData.d.map((v, i) => ({ time: allCandles[i].time, value: v })));
                         }
                         
                         state.fullRecalc = false;
@@ -876,7 +827,7 @@ if (!window.karenBotInjected) {
             macdHistory: state.macdHistory,
             stoch: state.stoch,
             stochHistory: state.stochHistory,
-            candles: state.candles.slice(-150),
+            candles: state.candles,
             histState: state.histState,
             historicalHighs: state.historicalHighs || [],
             historicalLows: state.historicalLows || [],
@@ -2629,159 +2580,3 @@ if (currentMacd.line < -threshold) {
     }
 }
 })();
-`;
-
-export default function App() {
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [videoData, setVideoData] = useState<{ buffer: ArrayBuffer, name: string } | null>(null);
-  const [isReadingVideo, setIsReadingVideo] = useState(false);
-
-  const handleVideoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) {
-      setVideoData(null);
-      return;
-    }
-    setIsReadingVideo(true);
-    try {
-      const buffer = await file.arrayBuffer();
-      setVideoData({ buffer, name: file.name });
-    } catch (err) {
-      console.error("Video read error:", err);
-      alert("Failed to read video file. Please try again or select a different file.");
-      setVideoData(null);
-    }
-    setIsReadingVideo(false);
-  };
-
-  const downloadExtension = async () => {
-    if (!videoData) {
-      alert("Please select your video.mp4 and wait for it to load!");
-      return;
-    }
-    setIsDownloading(true);
-    try {
-      const zip = new JSZip();
-      zip.file("manifest.json", EXTENSION_MANIFEST);
-      zip.file("rules.json", `[
-  {
-    "id": 1,
-    "priority": 1,
-    "action": {
-      "type": "modifyHeaders",
-      "responseHeaders": [
-        { "header": "x-frame-options", "operation": "remove" },
-        { "header": "content-security-policy", "operation": "remove" }
-      ]
-    },
-    "condition": {
-      "urlFilter": "olymptrade.com",
-      "resourceTypes": ["sub_frame", "main_frame", "xmlhttprequest", "websocket"]
-    }
-  }
-]`);
-      zip.file("loader.js", EXTENSION_LOADER_JS);
-      zip.file("bot.js", EXTENSION_BOT_JS);
-      zip.file("video.mp4", videoData.buffer);
-      zip.file("README.txt", "Your custom video has been automatically packaged!");
-      
-      const tvRes = await fetch('https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js');
-      const tvCode = await tvRes.text();
-      zip.file("tv.js", tvCode);
-      
-      const content = await zip.generateAsync({ type: "blob" });
-      saveAs(content, "KAREN_ARYAN_Alarm_v17.0.zip");
-    } catch (error) {
-      console.error("Download failed:", error);
-      alert("Failed to package extension: " + (error instanceof Error ? error.message : String(error)));
-    }
-    setIsDownloading(false);
-  };
-
-  return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900 font-sans flex flex-col items-center justify-center p-6">
-      
-      <div className="max-w-2xl w-full flex flex-col items-center text-center gap-8">
-        <div className="w-24 h-24 bg-white border border-zinc-200 rounded-3xl flex items-center justify-center shadow-xl relative">
-          <Sparkles className="w-6 h-6 text-pink-500 absolute -top-2 -right-2 animate-pulse" />
-          <LayoutTemplate className="w-12 h-12 text-black" />
-        </div>
-        
-        <div>
-          <h1 className="text-4xl font-bold tracking-tight mb-4">
-            KAREN🌸 & ARYAN⚡ <span className="text-zinc-400 font-normal">v17.0</span>
-          </h1>
-          <p className="text-lg text-zinc-500 max-w-lg mx-auto leading-relaxed">
-            The ultimate trading ALARM! Now featuring a clean black-and-white UI, MACD-only logic, and big notifications!
-          </p>
-        </div>
-
-        <div className="bg-white border border-zinc-200 rounded-3xl p-8 w-full text-left flex flex-col gap-6 shadow-sm">
-          <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-2">Major Upgrades in v17.0</h3>
-          
-          <div className="flex items-start gap-4">
-            <div className="w-10 h-10 rounded-full bg-purple-50 flex items-center justify-center shrink-0">
-              <Sparkles className="w-5 h-5 text-purple-600" />
-            </div>
-            <div>
-              <h4 className="font-bold text-zinc-900 text-lg">Alarm Mode</h4>
-              <p className="text-sm text-zinc-500 mt-1">Removed auto-trading and backtesting. The app now acts as a pure alarm, ringing and vibrating with a big notification when your strategy conditions are met!</p>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-4">
-            <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center shrink-0">
-              <LayoutTemplate className="w-5 h-5 text-emerald-600" />
-            </div>
-            <div>
-              <h4 className="font-bold text-zinc-900 text-lg">Clean UI & Circle Signal</h4>
-              <p className="text-sm text-zinc-500 mt-1">Simplified the interface to a sleek black-and-white design. The signal is now a beautiful spinning circle that pauses when waiting for conditions.</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-purple-50 border border-purple-100 rounded-3xl p-6 w-full text-left shadow-sm mb-2">
-          <h4 className="font-bold text-purple-900 mb-2 flex items-center gap-2">
-            <Film className="w-5 h-5" />
-            Step 1: Attach Your Video
-          </h4>
-          <p className="text-sm text-purple-700 mb-4">
-            Select your John Wick video here. We will automatically package it inside the ZIP file!
-          </p>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold text-purple-800 mb-1">
-                Video File (mp4) {isReadingVideo && <span className="text-purple-500 animate-pulse ml-2">Reading...</span>}
-              </label>
-              <input
-                type="file"
-                accept="video/mp4"
-                onChange={handleVideoChange}
-                className="block w-full text-sm text-purple-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-bold file:bg-purple-600 file:text-white hover:file:bg-purple-700 cursor-pointer"
-              />
-              {videoData && <p className="text-[10px] text-purple-600 mt-1">✓ {videoData.name} loaded</p>}
-            </div>
-          </div>
-        </div>
-
-        <button 
-          onClick={downloadExtension}
-          disabled={isDownloading || isReadingVideo}
-          className="flex items-center gap-3 px-8 py-4 bg-black hover:bg-zinc-800 disabled:bg-zinc-400 text-white rounded-2xl font-bold text-lg transition-all shadow-lg hover:shadow-xl hover:-translate-y-1"
-        >
-          {isDownloading ? (
-            <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-          ) : (
-            <Download className="w-6 h-6" />
-          )}
-          {isDownloading ? 'Packaging v17.0...' : 'Step 2: Download KAREN & ARYAN v17.0'}
-        </button>
-
-        <p className="text-sm text-zinc-500 mt-4 font-medium">
-          Install in Kiwi Browser → Open Olymp Trade → Enjoy the Magic!
-        </p>
-      </div>
-
-    </div>
-  );
-}
